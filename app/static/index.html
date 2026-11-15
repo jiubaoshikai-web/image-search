@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>画像検索</title>
+<style>
+  :root { --bg:#f7f7fb; --fg:#222; --card:#fff; --accent:#7b5cff; --muted:#777; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16161d; --fg:#eee; --card:#22222c; --accent:#9d87ff; --muted:#999; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg);
+         font-family:system-ui,"Hiragino Sans","Noto Sans JP",sans-serif; }
+  main { max-width:960px; margin:0 auto; }
+  h1 { font-size:1.4rem; }
+  form { display:flex; gap:8px; margin-bottom:12px; }
+  input[type=search] { flex:1; padding:10px 12px; font-size:1rem; border-radius:8px;
+                       border:1px solid #8884; background:var(--card); color:var(--fg); }
+  button, label.btn { padding:10px 16px; border:0; border-radius:8px; background:var(--accent);
+                      color:#fff; font-size:1rem; cursor:pointer; }
+  .bar { display:flex; gap:8px; align-items:center; margin-bottom:16px; color:var(--muted); }
+  #status { min-height:1.4em; color:var(--muted); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; }
+  .card { background:var(--card); border-radius:10px; overflow:hidden; position:relative; }
+  .card img { width:100%; aspect-ratio:1; object-fit:cover; display:block; }
+  .card .meta { padding:6px 8px; font-size:.8rem; color:var(--muted); word-break:break-all; }
+  .card .del { position:absolute; top:6px; right:6px; padding:2px 8px; font-size:.8rem;
+               background:#000a; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🔎 画像検索</h1>
+  <form id="searchForm">
+    <input type="search" id="q" placeholder="例: 海辺の夕日 / a cat on a sofa" autofocus>
+    <button>検索</button>
+  </form>
+  <div class="bar">
+    <label class="btn">画像を追加<input type="file" id="file" accept="image/*" multiple hidden></label>
+    <button type="button" id="showAll" style="background:#8886">すべて表示</button>
+  </div>
+  <div id="status"></div>
+  <div class="grid" id="grid"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const status = t => $("status").textContent = t;
+
+function render(items, withScore) {
+  $("grid").innerHTML = "";
+  for (const it of items) {
+    const c = document.createElement("div");
+    c.className = "card";
+    const img = document.createElement("img");
+    img.src = it.url; img.alt = it.filename; img.loading = "lazy";
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = it.filename + (withScore ? `  (${it.score.toFixed(3)})` : "");
+    const del = document.createElement("button");
+    del.className = "del"; del.textContent = "✕";
+    del.onclick = async () => {
+      if (!confirm("削除しますか？")) return;
+      await fetch(`/api/images/${it.id}`, {method: "DELETE"});
+      c.remove();
+    };
+    c.append(img, del, meta);
+    $("grid").append(c);
+  }
+}
+
+async function showAll() {
+  const items = await (await fetch("/api/images")).json();
+  render(items, false);
+  status(`${items.length} 枚`);
+}
+
+$("searchForm").onsubmit = async e => {
+  e.preventDefault();
+  const q = $("q").value.trim();
+  if (!q) return showAll();
+  status("検索中…");
+  const r = await fetch("/api/search?q=" + encodeURIComponent(q));
+  if (!r.ok) return status((await r.json()).detail || "エラー");
+  const items = await r.json();
+  render(items, true);
+  status(`${items.length} 件`);
+};
+
+$("file").onchange = async e => {
+  const files = [...e.target.files];
+  if (!files.length) return;
+  status(`${files.length} 枚をアップロード中… (初回はモデル読込で時間がかかります)`);
+  const fd = new FormData();
+  files.forEach(f => fd.append("files", f));
+  const r = await fetch("/api/images", {method: "POST", body: fd});
+  e.target.value = "";
+  if (!r.ok) return status((await r.json()).detail || "アップロード失敗");
+  await showAll();
+};
+
+$("showAll").onclick = showAll;
+showAll();
+</script>
+</body>
+</html>
